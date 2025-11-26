@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
+from di_client import analyze_invoice
 
 load_dotenv()
 
@@ -30,19 +31,13 @@ async def upload_bill(file: UploadFile = File(...), tenant: str = "default", pro
     with open(file_path, "wb") as f:
         content = await file.read()
         f.write(content)
+    # parse using Azure Document Intelligence (prebuilt invoice)
+    try:
+        parsed = analyze_invoice(str(file_path))
+    except Exception as e:
+        # fallback minimal parsed object to avoid breaking callers
+        parsed = {"bill_id": bill_id, "error": str(e)}
 
-    # create placeholder parsed JSON (in real system use Azure Document Intelligence)
-    parsed = {
-        "bill_id": bill_id,
-        "vendor": "Example Vendor",
-        "invoice_date": "2025-11-24",
-        "line_items": [
-            {"item": "Cement 50kg", "qty": 200, "rate": 385, "total": 77000},
-            {"item": "Sand truck", "qty": 10, "rate": 5000, "total": 50000}
-        ],
-        "taxes": 0,
-        "total_amount": 127000
-    }
     parsed_path = STORAGE_DIR / "parsed"
     parsed_path.mkdir(parents=True, exist_ok=True)
     with open(parsed_path / f"{bill_id}.json", "w") as f:
