@@ -56,12 +56,78 @@ async def get_bill_result(bill_id: str):
         raise HTTPException(status_code=404, detail="Bill not found")
     with open(parsed_path) as f:
         parsed = json.load(f)
-    # stub: load anomaly scores + LLM reasoner if available
+    # Perform arithmetic validations: per-line multiplication and sum of lines
+    def _to_number(v):
+        if v is None:
+            return None
+        # handle numbers that may be strings with commas
+        if isinstance(v, (int, float)):
+            return float(v)
+        try:
+            return float(str(v).replace(",", ""))
+        except Exception:
+            return None
+
+    line_checks = []
+    line_items = parsed.get("line_items") or []
+    sum_of_line_totals = 0.0
+    for idx, li in enumerate(line_items):
+        qty = _to_number(li.get("qty") or li.get("quantity"))
+        rate = _to_number(li.get("rate") or li.get("unit_price") or li.get("price"))
+        total = _to_number(li.get("total") or li.get("amount") or li.get("total_price"))
+
+        computed = None
+        ok = None
+        diff = None
+        if qty is not None and rate is not None:
+            computed = round(qty * rate, 2)
+            if total is not None:
+                diff = round(computed - total, 2)
+                ok = abs(diff) <= 1.0  # tolerance: 1 currency unit
+        # if total provided use it for sum, otherwise fall back to computed
+        sum_of_line_totals += total if total is not None else (computed or 0.0)
+
+        line_checks.append({
+            "line_index": idx,
+            "item": li.get("item") or li.get("description"),
+            "qty": qty,
+            "rate": rate,
+            "total": total,
+            "computed_total": computed,
+            "diff": diff,
+            "ok": ok,
+        })
+
+    invoice_total = _to_number(parsed.get("total_amount") or parsed.get("InvoiceTotal") or parsed.get("amount_due"))
+    sum_diff = None
+    sum_ok = None
+    if invoice_total is not None:
+        sum_diff = round(sum_of_line_totals - invoice_total, 2)
+        sum_ok = abs(sum_diff) <= 1.0
+
+    validations = {
+        "lines": line_checks,
+        "sum_of_line_totals": round(sum_of_line_totals, 2),
+        "invoice_total": invoice_total,
+        "sum_diff": sum_diff,
+        "sum_ok": sum_ok,
+    }
+
     result = {
         "bill_id": bill_id,
         "parsed": parsed,
+        "validations": validations,
         "fraud_score": 0.12,
         "fraud_explanation": "Low risk - sample prototype result",
         "status": "analysed"
     }
     return result
+
+async def validate_gstin_endpoint(gstin: str, vendor_name: str | None = None):
+    from .validation import validate_gstin
+    result = validate_gstin(gstin, vendor_name=vendor_name)
+    return {
+        "gstin": gstin,
+        "vendor_name": vendor_name,
+        "validation_result": result
+    }
