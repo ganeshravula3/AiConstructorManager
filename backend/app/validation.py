@@ -11,8 +11,12 @@ This module provides:
 """
 from pathlib import Path
 import re
-from typing import List, Dict, Any
-
+from typing import List, Dict, Any, Optional
+import difflib
+import os
+from dotenv import load_dotenv
+load_dotenv()
+import requests
 try:
     from pdf2image import convert_from_path
     import pytesseract
@@ -73,7 +77,7 @@ def find_multiplications_in_text(text: str, tolerance: float = 1.0) -> Dict[str,
     return {"matches": results, "summary": summary}
 
 
-def validate_gstin(gstin: str) -> Dict[str, Any]:
+def validate_gstin(gstin: str, vendor_name: Optional[str] = None) -> Dict[str, Any]:
     """Validate GSTIN format for Indian GST numbers.
 
     This function checks:
@@ -85,6 +89,30 @@ def validate_gstin(gstin: str) -> Dict[str, Any]:
     """
     gst = (gstin or "").strip().upper()
     result = {"gstin": gst, "valid_format": False, "state_code_ok": False, "notes": []}
+
+    # Optional external GSTIN verification (configurable via env vars).
+    # Set `GSTIN_CHECK_URL` to enable an external check (e.g. https://sheet.gstincheck.co.in/check).
+    # Optionally set `GSTIN_CHECK_KEY` for an API key; it will be sent as a Bearer token.
+    gstin_api_url = os.getenv("gstin_endpoint")
+    gstin_api_key = os.getenv("gstin_key")
+    if gstin_api_url:
+        try:
+            headers = {}
+            if gstin_api_key:
+                headers["Authorization"] = f"Bearer {gstin_api_key}"
+            # build safe URL
+            url = gstin_api_url.rstrip("/") + "/" + gst
+            resp = requests.get(url, headers=headers, timeout=5)
+            if resp.status_code == 200:
+                # attach external service response for debugging/decisioning
+                try:
+                    result["external_check"] = resp.json()
+                except Exception:
+                    result["external_check"] = {"raw": resp.text}
+            else:
+                result["notes"].append(f"external_service_error:{resp.status_code}")
+        except Exception as e:
+            result["notes"].append(f"external_check_error:{str(e)}")
 
     if len(gst) != 15:
         result["notes"].append("GSTIN must be 15 characters long")
@@ -108,4 +136,34 @@ def validate_gstin(gstin: str) -> Dict[str, Any]:
 
     # We could implement checksum validation here; for now we note it's unchecked.
     result["notes"].append("checksum_not_validated")
+
+    # If external check returned a business name, and vendor_name supplied, compare them
+    if vendor_name and result.get("external_check"):
+        # Try common keys for business name in external response
+        ext = result.get("external_check")
+        found_name = None
+        if isinstance(ext, dict):
+            for key in ("business_name", "name", "legal_name", "company", "firm", "trade_name"):
+                v = ext.get(key)
+                if v:
+                    found_name = str(v)
+                    break
+            # some APIs nest data under 'data' or similar
+            if not found_name:
+                for parent in ("data", "result", "payload"):
+                    if parent in ext and isinstance(ext[parent], dict):
+                        for key in ("business_name", "name", "legal_name", "company", "firm", "trade_name"):
+                            v = ext[parent].get(key)
+                            if v:
+                                found_name = str(v)
+                                break
+                        if found_name:
+                            break
+
+        if found_name:
+            # compute similarity ratio
+            ratio = difflib.SequenceMatcher(a=vendor_name.lower(), b=found_name.lower()).ratio()
+            match = ratio >= 0.7
+            result["business_name_match"] = {"found_name": found_name, "similarity": round(ratio, 3), "match": match}
+
     return result
