@@ -1,11 +1,15 @@
 import os
 import uuid
 import json
+from datetime import datetime
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from .di_client import analyze_invoice
+from .budget_tracker import BudgetTracker, Budget
+from .vendor_analytics import VendorAnalytics
+from .compliance_automation import ComplianceAutomation
 
 load_dotenv()
 
@@ -15,6 +19,11 @@ BILLS_DIR = STORAGE_DIR / "bills"
 BILLS_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Construction Bill Verification - Prototype")
+
+# Initialize system modules
+budget_tracker = BudgetTracker()
+vendor_analytics = VendorAnalytics()
+compliance_automation = ComplianceAutomation()
 
 @app.get("/health")
 async def health():
@@ -50,12 +59,13 @@ async def upload_bill(file: UploadFile = File(...), tenant: str = "default", pro
     return JSONResponse({"bill_id": bill_id, "status": "uploaded"})
 
 @app.get("/get_bill_result/{bill_id}")
-async def get_bill_result(bill_id: str):
+async def get_bill_result(bill_id: str, project_id: str = "default-project"):
     parsed_path = STORAGE_DIR / "parsed" / f"{bill_id}.json"
     if not parsed_path.exists():
         raise HTTPException(status_code=404, detail="Bill not found")
     with open(parsed_path) as f:
         parsed = json.load(f)
+    
     # Perform arithmetic validations: per-line multiplication and sum of lines
     def _to_number(v):
         if v is None:
@@ -201,12 +211,81 @@ async def get_bill_result(bill_id: str):
     else:
         fraud_explanation = "Low risk - no significant arithmetic or GSTIN issues detected"
 
+    # PHASE 2 INTEGRATION: Add vendor transaction and compliance check
+    vendor_transaction_id = None
+    compliance_check_id = None
+    compliance_violations = []
+    
+    try:
+        # Add vendor transaction if vendor and amount available
+        if vendor_name and invoice_total:
+            # Determine category from line items
+            category = "materials"  # default
+            if line_items:
+                first_item = line_items[0].get("item", "").lower()
+                if any(word in first_item for word in ["labor", "service", "work"]):
+                    category = "labor"
+                elif any(word in first_item for word in ["equipment", "machine", "tool"]):
+                    category = "equipment"
+                elif any(word in first_item for word in ["overhead", "admin", "management"]):
+                    category = "overhead"
+            
+            vendor_transaction_id = vendor_analytics.add_transaction(
+                vendor_name=vendor_name,
+                project_id=project_id,
+                amount=invoice_total,
+                category=category,
+                notes=f"Auto-created from bill {bill_id}"
+            )
+        
+        # Run compliance check
+        transaction_data = {
+            "id": bill_id,
+            "vendor_gstin": gstin,
+            "amount": invoice_total,
+            "date": parsed.get("invoice_date", datetime.now().isoformat()),
+            "category": category if 'category' in locals() else "materials",
+            "documents": [{"type": "invoice", "bill_id": bill_id}],
+            "audit_trail": [
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "user": "system",
+                    "action": "bill_processing",
+                    "before": None,
+                    "after": parsed
+                }
+            ]
+        }
+        
+        compliance_check_id, violations = compliance_automation.run_compliance_check(
+            transaction_data=transaction_data,
+            project_id=project_id
+        )
+        
+        compliance_violations = [
+            {
+                "violation_id": v.violation_id,
+                "rule_name": v.rule_name,
+                "severity": v.severity,
+                "description": v.description
+            }
+            for v in violations
+        ]
+        
+    except Exception as e:
+        # Don't fail the entire request if Phase 2 features fail
+        print(f"Phase 2 integration error: {e}")
+
     result = {
         "bill_id": bill_id,
+        "project_id": project_id,
         "parsed": parsed,
         "validations": validations,
         "fraud_score": fraud_score,
         "fraud_explanation": fraud_explanation,
+        "vendor_transaction_id": vendor_transaction_id,
+        "compliance_check_id": compliance_check_id,
+        "compliance_violations": compliance_violations,
         "status": "analysed"
     }
     return result
@@ -218,4 +297,184 @@ async def validate_gstin_endpoint(gstin: str, vendor_name: str | None = None):
         "gstin": gstin,
         "vendor_name": vendor_name,
         "validation_result": result
+    }
+
+# Budget Tracking Endpoints
+
+@app.post("/budget/create")
+async def create_budget(budget_data: dict):
+    """Create a new project budget."""
+    try:
+        budget_id = budget_tracker.create_project_budget(
+            project_name=budget_data["project_name"],
+            project_id=budget_data["project_id"],
+            total_budget=budget_data["total_budget"],
+            start_date=budget_data.get("start_date"),
+            end_date=budget_data.get("end_date"),
+            categories=budget_data.get("categories")
+        )
+        return {"budget_id": budget_id, "status": "created"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/budget/{project_id}")
+async def get_budget(project_id: str):
+    """Get budget details for a project."""
+    budget = budget_tracker.get_project_budget(project_id)
+    if not budget:
+        raise HTTPException(status_code=404, detail="Budget not found")
+    return budget
+
+@app.post("/budget/{project_id}/expense")
+async def add_expense(project_id: str, expense_data: dict):
+    """Add an expense to a project budget."""
+    try:
+        success = budget_tracker.add_expense(
+            project_id=project_id,
+            category=expense_data["category"],
+            amount=expense_data["amount"],
+            description=expense_data.get("description", ""),
+            vendor=expense_data.get("vendor", "")
+        )
+        if success:
+            return {"status": "expense_added"}
+        else:
+            raise HTTPException(status_code=404, detail="Budget not found")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/budget/{project_id}/summary")
+async def get_budget_summary(project_id: str):
+    """Get budget summary and alerts."""
+    summary = budget_tracker.get_project_summary(project_id)
+    if not summary:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return summary
+
+@app.get("/budget/{project_id}/alerts")
+async def get_budget_alerts(project_id: str):
+    """Get budget alerts for a project."""
+    alerts = budget_tracker.get_alerts(project_id)
+    return {"project_id": project_id, "alerts": alerts}
+
+@app.get("/budget/summary/all")
+async def get_all_budgets_summary():
+    """Get summary of all project budgets."""
+    summary = budget_tracker.get_all_projects_summary()
+    return summary
+
+# Vendor Analytics Endpoints
+
+@app.post("/vendor/transaction")
+async def add_vendor_transaction(transaction_data: dict):
+    """Add a new vendor transaction."""
+    try:
+        transaction_id = vendor_analytics.add_transaction(
+            vendor_name=transaction_data["vendor_name"],
+            project_id=transaction_data["project_id"],
+            amount=transaction_data["amount"],
+            category=transaction_data["category"],
+            quality_rating=transaction_data.get("quality_rating", 3),
+            delivery_rating=transaction_data.get("delivery_rating", 3),
+            notes=transaction_data.get("notes", "")
+        )
+        return {"transaction_id": transaction_id, "status": "added"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.put("/vendor/transaction/{transaction_id}/payment")
+async def mark_transaction_paid(transaction_id: str, payment_data: dict = None):
+    """Mark a transaction as paid."""
+    payment_date = payment_data.get("payment_date") if payment_data else None
+    success = vendor_analytics.mark_payment(transaction_id, payment_date)
+    if success:
+        return {"status": "payment_marked"}
+    else:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+@app.get("/vendor/{vendor_name}/performance")
+async def get_vendor_performance(vendor_name: str):
+    """Get comprehensive vendor performance analysis."""
+    performance = vendor_analytics.get_vendor_performance(vendor_name)
+    if "error" in performance:
+        raise HTTPException(status_code=404, detail=performance["error"])
+    return performance
+
+@app.get("/vendor/top")
+async def get_top_vendors(limit: int = 10, sort_by: str = "performance"):
+    """Get top performing vendors."""
+    vendors = vendor_analytics.get_top_vendors(limit, sort_by)
+    return {"top_vendors": vendors}
+
+@app.get("/vendor/recommendations")
+async def get_vendor_recommendations(category: str, budget: float):
+    """Get vendor recommendations for a category and budget."""
+    recommendations = vendor_analytics.get_vendor_recommendations(category, budget)
+    return {
+        "category": category,
+        "budget": budget,
+        "recommendations": recommendations
+    }
+
+# Compliance Automation Endpoints
+
+@app.post("/compliance/check")
+async def run_compliance_check(check_data: dict):
+    """Run compliance check on transaction data."""
+    try:
+        check_id, violations = compliance_automation.run_compliance_check(
+            transaction_data=check_data["transaction_data"],
+            project_id=check_data["project_id"]
+        )
+        return {
+            "check_id": check_id,
+            "violations_count": len(violations),
+            "violations": [
+                {
+                    "violation_id": v.violation_id,
+                    "rule_name": v.rule_name,
+                    "severity": v.severity,
+                    "description": v.description,
+                    "status": v.status
+                }
+                for v in violations
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/compliance/report")
+async def get_compliance_report(project_id: str = None, days: int = 30):
+    """Generate compliance report."""
+    report = compliance_automation.get_compliance_report(project_id, days)
+    return report
+
+@app.put("/compliance/violation/{violation_id}/resolve")
+async def resolve_violation(violation_id: str, resolution_data: dict):
+    """Mark a compliance violation as resolved."""
+    success = compliance_automation.resolve_violation(
+        violation_id=violation_id,
+        remediation_notes=resolution_data.get("remediation_notes", "")
+    )
+    if success:
+        return {"status": "resolved"}
+    else:
+        raise HTTPException(status_code=404, detail="Violation not found")
+
+@app.get("/compliance/rules")
+async def get_compliance_rules():
+    """Get all compliance rules."""
+    rules = compliance_automation.load_rules()
+    return {
+        "rules": [
+            {
+                "rule_id": rule.rule_id,
+                "rule_name": rule.rule_name,
+                "regulation": rule.regulation,
+                "description": rule.description,
+                "severity": rule.severity,
+                "active": rule.active
+            }
+            for rule in rules
+        ]
     }

@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Construction AI Manager Dashboard</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border: 1px solid #e1e5e9;
+        }
+        .card h2 {
+            margin-top: 0;
+            color: #333;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        .btn {
+            background: #667eea;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+            transition: background-color 0.3s;
+        }
+        .btn:hover {
+            background: #5a6bc8;
+        }
+        .btn-danger {
+            background: #e74c3c;
+        }
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+        .btn-success {
+            background: #27ae60;
+        }
+        .btn-success:hover {
+            background: #229954;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        .result-box {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            margin-top: 15px;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .status {
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+            display: inline-block;
+            margin: 2px;
+        }
+        .status.low { background: #d4edda; color: #155724; }
+        .status.moderate { background: #fff3cd; color: #856404; }
+        .status.high { background: #f8d7da; color: #721c24; }
+        .status.critical { background: #f5c6cb; color: #721c24; }
+        .status.passed { background: #d4edda; color: #155724; }
+        .status.failed { background: #f8d7da; color: #721c24; }
+        .status.warning { background: #fff3cd; color: #856404; }
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 20px;
+            background: #e9ecef;
+            border: 1px solid #ddd;
+            cursor: pointer;
+            border-radius: 5px 5px 0 0;
+            margin-right: 5px;
+        }
+        .tab.active {
+            background: #667eea;
+            color: white;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏗️ Construction AI Manager</h1>
+            <p>Phase 2: Budget Tracking, Vendor Analytics & Compliance Automation</p>
+        </div>
+
+        <div class="tabs">
+            <div class="tab active" onclick="showTab('budget')">💰 Budget Management</div>
+            <div class="tab" onclick="showTab('vendor')">🏢 Vendor Analytics</div>
+            <div class="tab" onclick="showTab('compliance')">✅ Compliance</div>
+            <div class="tab" onclick="showTab('bill')">📄 Bill Processing</div>
+        </div>
+
+        <!-- Budget Management Tab -->
+        <div id="budget" class="tab-content active">
+            <div class="dashboard-grid">
+                <div class="card">
+                    <h2>Create New Budget</h2>
+                    <div class="form-group">
+                        <label>Project Name</label>
+                        <input type="text" id="projectName" placeholder="e.g., Office Building Construction">
+                    </div>
+                    <div class="form-group">
+                        <label>Project ID</label>
+                        <input type="text" id="projectId" placeholder="e.g., proj-001">
+                    </div>
+                    <div class="form-group">
+                        <label>Total Budget (₹)</label>
+                        <input type="number" id="totalBudget" placeholder="e.g., 5000000">
+                    </div>
+                    <button class="btn" onclick="createBudget()">Create Budget</button>
+                    <div class="result-box" id="budgetResult"></div>
+                </div>
+
+                <div class="card">
+                    <h2>Add Expense</h2>
+                    <div class="form-group">
+                        <label>Project ID</label>
+                        <input type="text" id="expenseProjectId" placeholder="proj-001">
+                    </div>
+                    <div class="form-group">
+                        <label>Category</label>
+                        <select id="expenseCategory">
+                            <option value="materials">Materials</option>
+                            <option value="labor">Labor</option>
+                            <option value="equipment">Equipment</option>
+                            <option value="overhead">Overhead</option>
+                            <option value="services">Services</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Amount (₹)</label>
+                        <input type="number" id="expenseAmount" placeholder="e.g., 150000">
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <input type="text" id="expenseDescription" placeholder="e.g., Steel reinforcement bars">
+                    </div>
+                    <div class="form-group">
+                        <label>Vendor</label>
+                        <input type="text" id="expenseVendor" placeholder="e.g., ABC Steel Corp">
+                    </div>
+                    <button class="btn" onclick="addExpense()">Add Expense</button>
+                    <div class="result-box" id="expenseResult"></div>
+                </div>
+
+                <div class="card">
+                    <h2>Budget Summary</h2>
+                    <div class="form-group">
+                        <label>Project ID</label>
+                        <input type="text" id="summaryProjectId" placeholder="proj-001">
+                    </div>
+                    <button class="btn" onclick="getBudgetSummary()">Get Summary</button>
+                    <div class="result-box" id="summaryResult"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Vendor Analytics Tab -->
+        <div id="vendor" class="tab-content">
+            <div class="dashboard-grid">
+                <div class="card">
+                    <h2>Vendor Performance</h2>
+                    <div class="form-group">
+                        <label>Vendor Name</label>
+                        <input type="text" id="vendorName" placeholder="e.g., ABC Construction Supplies">
+                    </div>
+                    <button class="btn" onclick="getVendorPerformance()">Analyze Performance</button>
+                    <div class="result-box" id="vendorResult"></div>
+                </div>
+
+                <div class="card">
+                    <h2>Top Vendors</h2>
+                    <div class="form-group">
+                        <label>Sort By</label>
+                        <select id="sortBy">
+                            <option value="performance">Overall Performance</option>
+                            <option value="volume">Transaction Volume</option>
+                            <option value="reliability">Payment Reliability</option>
+                        </select>
+                    </div>
+                    <button class="btn" onclick="getTopVendors()">Get Top Vendors</button>
+                    <div class="result-box" id="topVendorsResult"></div>
+                </div>
+
+                <div class="card">
+                    <h2>Vendor Recommendations</h2>
+                    <div class="form-group">
+                        <label>Category</label>
+                        <select id="recCategory">
+                            <option value="materials">Materials</option>
+                            <option value="labor">Labor</option>
+                            <option value="equipment">Equipment</option>
+                            <option value="services">Services</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Project Budget (₹)</label>
+                        <input type="number" id="recBudget" placeholder="e.g., 500000">
+                    </div>
+                    <button class="btn" onclick="getRecommendations()">Get Recommendations</button>
+                    <div class="result-box" id="recommendationsResult"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Compliance Tab -->
+        <div id="compliance" class="tab-content">
+            <div class="dashboard-grid">
+                <div class="card">
+                    <h2>Compliance Rules</h2>
+                    <button class="btn" onclick="getComplianceRules()">View All Rules</button>
+                    <div class="result-box" id="rulesResult"></div>
+                </div>
+
+                <div class="card">
+                    <h2>Compliance Report</h2>
+                    <div class="form-group">
+                        <label>Project ID (Optional)</label>
+                        <input type="text" id="complianceProjectId" placeholder="Leave empty for all projects">
+                    </div>
+                    <div class="form-group">
+                        <label>Days</label>
+                        <input type="number" id="complianceDays" value="30" placeholder="30">
+                    </div>
+                    <button class="btn" onclick="getComplianceReport()">Generate Report</button>
+                    <div class="result-box" id="complianceResult"></div>
+                </div>
+
+                <div class="card">
+                    <h2>Test Compliance Check</h2>
+                    <p>This will run a sample compliance check on mock transaction data.</p>
+                    <button class="btn" onclick="runTestComplianceCheck()">Run Test Check</button>
+                    <div class="result-box" id="testComplianceResult"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bill Processing Tab -->
+        <div id="bill" class="tab-content">
+            <div class="dashboard-grid">
+                <div class="card">
+                    <h2>Upload Bill for Analysis</h2>
+                    <div class="form-group">
+                        <label>PDF File</label>
+                        <input type="file" id="billFile" accept=".pdf">
+                    </div>
+                    <div class="form-group">
+                        <label>Project ID</label>
+                        <input type="text" id="billProjectId" placeholder="proj-001">
+                    </div>
+                    <button class="btn" onclick="uploadBill()">Upload & Analyze</button>
+                    <div class="result-box" id="billResult"></div>
+                </div>
+
+                <div class="card">
+                    <h2>Get Analysis Result</h2>
+                    <div class="form-group">
+                        <label>Bill ID</label>
+                        <input type="text" id="billId" placeholder="Enter bill ID from upload">
+                    </div>
+                    <div class="form-group">
+                        <label>Project ID</label>
+                        <input type="text" id="resultProjectId" placeholder="proj-001">
+                    </div>
+                    <button class="btn" onclick="getBillResult()">Get Result</button>
+                    <div class="result-box" id="analysisResult"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+
+        function showTab(tabName) {
+            // Hide all tab contents
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            // Hide all tab buttons
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            // Show selected tab
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        async function apiCall(endpoint, method = 'GET', data = null) {
+            try {
+                const config = {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                };
+                
+                if (data) {
+                    config.body = JSON.stringify(data);
+                }
+                
+                const response = await fetch(`${API_BASE}${endpoint}`, config);
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.detail || 'API Error');
+                }
+                
+                return result;
+            } catch (error) {
+                console.error('API Error:', error);
+                return { error: error.message };
+            }
+        }
+
+        // Budget Management Functions
+        async function createBudget() {
+            const data = {
+                project_name: document.getElementById('projectName').value,
+                project_id: document.getElementById('projectId').value,
+                total_budget: parseFloat(document.getElementById('totalBudget').value)
+            };
+            
+            const result = await apiCall('/budget/create', 'POST', data);
+            document.getElementById('budgetResult').textContent = JSON.stringify(result, null, 2);
+        }
+
+        async function addExpense() {
+            const projectId = document.getElementById('expenseProjectId').value;
+            const data = {
+                category: document.getElementById('expenseCategory').value,
+                amount: parseFloat(document.getElementById('expenseAmount').value),
+                description: document.getElementById('expenseDescription').value,
+                vendor: document.getElementById('expenseVendor').value
+            };
+            
+            const result = await apiCall(`/budget/${projectId}/expense`, 'POST', data);
+            document.getElementById('expenseResult').textContent = JSON.stringify(result, null, 2);
+        }
+
+        async function getBudgetSummary() {
+            const projectId = document.getElementById('summaryProjectId').value;
+            const result = await apiCall(`/budget/${projectId}/summary`);
+            document.getElementById('summaryResult').textContent = JSON.stringify(result, null, 2);
+        }
+
+        // Vendor Analytics Functions
+        async function getVendorPerformance() {
+            const vendorName = document.getElementById('vendorName').value;
+            const result = await apiCall(`/vendor/${encodeURIComponent(vendorName)}/performance`);
+            document.getElementById('vendorResult').textContent = JSON.stringify(result, null, 2);
+        }
+
+        async function getTopVendors() {
+            const sortBy = document.getElementById('sortBy').value;
+            const result = await apiCall(`/vendor/top?sort_by=${sortBy}`);
+            document.getElementById('topVendorsResult').textContent = JSON.stringify(result, null, 2);
+        }
+
+        async function getRecommendations() {
+            const category = document.getElementById('recCategory').value;
+            const budget = document.getElementById('recBudget').value;
+            const result = await apiCall(`/vendor/recommendations?category=${category}&budget=${budget}`);
+            document.getElementById('recommendationsResult').textContent = JSON.stringify(result, null, 2);
+        }
+
+        // Compliance Functions
+        async function getComplianceRules() {
+            const result = await apiCall('/compliance/rules');
+            document.getElementById('rulesResult').textContent = JSON.stringify(result, null, 2);
+        }
+
+        async function getComplianceReport() {
+            const projectId = document.getElementById('complianceProjectId').value;
+            const days = document.getElementById('complianceDays').value;
+            let endpoint = `/compliance/report?days=${days}`;
+            if (projectId) {
+                endpoint += `&project_id=${projectId}`;
+            }
+            const result = await apiCall(endpoint);
+            document.getElementById('complianceResult').textContent = JSON.stringify(result, null, 2);
+        }
+
+        async function runTestComplianceCheck() {
+            const testData = {
+                transaction_data: {
+                    id: "test-txn-001",
+                    vendor_gstin: "29ABCDE1234F2Z5",
+                    amount: 250000,
+                    date: new Date().toISOString(),
+                    category: "materials",
+                    tds_deducted: 2500,
+                    documents: [
+                        { type: "invoice", bill_id: "test-bill-001" },
+                        { type: "delivery_challan", bill_id: "test-dc-001" }
+                    ]
+                },
+                project_id: "proj-001"
+            };
+            
+            const result = await apiCall('/compliance/check', 'POST', testData);
+            document.getElementById('testComplianceResult').textContent = JSON.stringify(result, null, 2);
+        }
+
+        // Bill Processing Functions
+        async function uploadBill() {
+            const fileInput = document.getElementById('billFile');
+            const projectId = document.getElementById('billProjectId').value;
+            
+            if (!fileInput.files[0]) {
+                document.getElementById('billResult').textContent = 'Please select a PDF file';
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            
+            try {
+                const response = await fetch(`${API_BASE}/upload_bill?project=${projectId}`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                document.getElementById('billResult').textContent = JSON.stringify(result, null, 2);
+            } catch (error) {
+                document.getElementById('billResult').textContent = `Error: ${error.message}`;
+            }
+        }
+
+        async function getBillResult() {
+            const billId = document.getElementById('billId').value;
+            const projectId = document.getElementById('resultProjectId').value;
+            const result = await apiCall(`/get_bill_result/${billId}?project_id=${projectId}`);
+            document.getElementById('analysisResult').textContent = JSON.stringify(result, null, 2);
+        }
+    </script>
+</body>
+</html>
